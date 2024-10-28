@@ -39,8 +39,8 @@ func NewContainerManager(config *Config, log *logrus.Logger) (*ContainerManager,
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
-	containerId, err := getCurrentContainerId()
-	if err != nil {
+	containerId := os.Getenv("CONTAINER_ID")
+	if containerId == "" {
 		return nil, fmt.Errorf("failed to get current container ID: %v", err)
 	}
 
@@ -330,26 +330,4 @@ func getBlockDevice(mp string) (string, error) {
 		return "", fmt.Errorf("failed to get blockdevice %s: %w", mp, err)
 	}
 	return strings.TrimSpace(string(out)), nil
-}
-
-// getCurrentContainerId reads the container ID from the cgroup file
-func getCurrentContainerId() (string, error) {
-	// Read the cgroup file
-	content, err := os.ReadFile("/proc/self/cgroup")
-	if err != nil {
-		return "", fmt.Errorf("failed to read cgroup file: %v", err)
-	}
-
-	// Parse the content to find the container ID
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "docker") {
-			parts := strings.Split(line, "/")
-			if len(parts) > 2 {
-				return parts[len(parts)-1], nil
-			}
-		}
-	}
-
-	return "", fmt.Errorf("container ID not found in cgroup file")
 }

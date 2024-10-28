@@ -67,4 +67,8 @@ fi
 
 log INFO "VFS creation completed successfully"
 
+log INFO "Getting my container id"
+export CONTAINER_ID=$(cat /proc/self/mountinfo | grep -m1 -oE 'docker/containers/([a-f0-9]+)/' | xargs basename)
+log INFO "My container id is $CONTAINER_ID"
+
 exec "$@"
