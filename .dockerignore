@@ -1,0 +1,5 @@
+docker/data/
+docker/templates/
+docker/*.conf
+docker/compose.yml
+docker/*Dockerfile

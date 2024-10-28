@@ -1,0 +1,38 @@
+[color "branch"]
+  	current = yellow reverse
+  	local = yellow
+  	remote = green
+
+[color "diff"]
+  	meta = yellow bold
+  	frag = magenta bold
+  	old = red bold
+  	new = green bold
+
+[color "status"]
+  	added = green
+  	changed = yellow
+  	untracked = cyan
+  	deleted = red
+
+[alias]
+  	l = log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit
+    sup = submodule foreach git pull
+
+[push]
+    default = current
+
+[core]
+	autocrlf = true
+
+[safe]
+	directory = *
+
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+
+[init]
+  defaultBranch = main
