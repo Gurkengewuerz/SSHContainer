@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -92,7 +93,10 @@ func (cm *ContainerManager) CreateContainer(ctx context.Context, cfg ContainerCo
 		AttachStdout: true,
 		AttachStderr: true,
 		StdinOnce:    true,
-		//User:         cfg.User,
+		Labels: map[string]string{
+			"de.mc8051.sshcontainer":      "true",
+			"de.mc8051.sshcontainer.user": cfg.User,
+		},
 	}
 
 	containerFields := logrus.Fields{
@@ -204,7 +208,7 @@ func (cm *ContainerManager) WaitContainer(ctx context.Context, containerID strin
 	return cm.client.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
 }
 
-func (cm *ContainerManager) RemoveContainer(ctx context.Context, containerID string) error {
+func (cm *ContainerManager) RemoveContainer(ctx context.Context, cfg ContainerConfig, containerID string) error {
 	err := cm.client.ContainerRemove(ctx, containerID, container.RemoveOptions{
 		Force: true,
 	})
@@ -213,6 +217,34 @@ func (cm *ContainerManager) RemoveContainer(ctx context.Context, containerID str
 	}
 
 	cm.log.WithField("containerID", containerID).Info("Removed container")
+
+	err = cm.RemoveVFSMount(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to remove vfs mount: %w", err)
+	}
+	return nil
+}
+
+func (cm *ContainerManager) CleanUpContainers(ctx context.Context) error {
+	cm.log.Info("Cleaning up containers")
+	// Create a filter for the specified label
+	filterArgs := filters.NewArgs()
+	filterArgs.Add("label", "de.mc8051.sshcontainer=true")
+
+	// List containers with the filter
+	containers, err := cm.client.ContainerList(ctx, container.ListOptions{
+		All:     true, // Include stopped containers
+		Filters: filterArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list containers: %v", err)
+	}
+
+	for _, c := range containers {
+		cm.RemoveContainer(ctx, ContainerConfig{
+			User: c.Labels["de.mc8051.sshcontainer.user"],
+		}, c.ID)
+	}
 	return nil
 }
 
@@ -253,38 +285,51 @@ func (cm *ContainerManager) CreateVFSMount(ctx context.Context, cfg ContainerCon
 		}
 	}
 
-	userWorkspace := path.Join("/workspaces", cfg.User)
-	// test using mountpoint if moiuntpoint is already mounted
-
-	if err := exec.Command("mountpoint", userWorkspace).Run(); err == nil {
-		cm.log.WithFields(fields).Info("User workspace already mounted")
-		return getBlockDevice(userWorkspace)
+	bd, _ := getBlockDevice(userVFS)
+	if bd != "" {
+		return bd, nil
 	}
 
-	// run force mount in go command of userVFS to /workspaces/cfg.User
-	// mount -o loop /vfs/cfg.User /workspaces/cfg.User
-	if err := os.MkdirAll(userWorkspace, 0755); err != nil {
-		return "", fmt.Errorf("failed to create user workspace: %w", err)
-	}
-	cm.log.WithFields(fields).Info("Created user workspace")
-	// exec command to mount userVFS to userWorkspace
-	if err := exec.Command("mount", "-o", "loop", userVFS, userWorkspace).Run(); err != nil {
+	cm.log.WithFields(fields).Info("Mounting user VFS")
+	// exec command to mount userVFS
+	if err := exec.Command("bash", "-c", fmt.Sprintf("NEXT=\"$(losetup -f)\" && losetup $NEXT \"%s\" && echo $NEXT", userVFS)).Run(); err != nil {
 		return "", fmt.Errorf("failed to mount user VFS: %w", err)
 	}
 	cm.log.WithFields(fields).Info("Mounted user VFS")
-	return getBlockDevice(userWorkspace)
+	return getBlockDevice(userVFS)
 }
 
+func (cm *ContainerManager) RemoveVFSMount(ctx context.Context, cfg ContainerConfig) error {
+	// Check if file exists at /vfs/cfg.User, if not copy from /vfs.img
+	userVFS := path.Join("/vfs", fmt.Sprintf("%s.img", cfg.User))
+
+	bd, err := getBlockDevice(userVFS)
+	if err != nil {
+		return fmt.Errorf("no blockdevice found: %w", err)
+	}
+
+	fields := logrus.Fields{
+		"user":        cfg.User,
+		"userVFS":     userVFS,
+		"blockdevice": bd,
+	}
+
+	cm.log.WithFields(fields).Debug("Try VFS cleanups")
+	if err := exec.Command("losetup", "-d", bd).Run(); err != nil {
+		cm.log.WithFields(fields).Warn("Failed to unmount user VFS. This is not good but not terrible. Maybe the device is busy.")
+		return nil
+	}
+	cm.log.WithFields(fields).Info("Unmounted user VFS")
+	return nil
+}
+
+// getBlockDevice returns the block device associated with the mountpoint
 func getBlockDevice(mp string) (string, error) {
-	out, err := exec.Command("df", "--output=source", mp).Output()
+	out, err := exec.Command("losetup", "--noheadings", "--output=NAME", "--associated", mp).Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get blockdevice %s: %w", mp, err)
 	}
-	parts := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("failed to get blockdevice invalid length %s: %w", mp, err)
-	}
-	return strings.TrimSpace(parts[1]), nil
+	return strings.TrimSpace(string(out)), nil
 }
 
 // getCurrentContainerId reads the container ID from the cgroup file

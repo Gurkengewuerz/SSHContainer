@@ -11,14 +11,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sync"
+	"os/signal"
+	"syscall"
 )
 
 type Server struct {
 	config     *Config
 	containers *ContainerManager
 	log        *logrus.Logger
-	sessions   sync.Map // map[string]string - session ID to container ID
 }
 
 func New(config *Config, log *logrus.Logger) (*Server, error) {
@@ -77,7 +77,7 @@ func (s *Server) handleSession(sess ssh.Session) {
 	ptyReq, winCh, isPty := sess.Pty()
 
 	// Create container config
-	containerID, err := s.containers.CreateContainer(ctx, ContainerConfig{
+	config := ContainerConfig{
 		Image:   s.config.DockerImage,
 		Cmd:     sess.Command(),
 		Env:     sess.Environ(),
@@ -85,19 +85,18 @@ func (s *Server) handleSession(sess ssh.Session) {
 		PtyRows: uint16(ptyReq.Window.Height),
 		PtyCols: uint16(ptyReq.Window.Width),
 		User:    sess.User(),
-	})
+	}
+	containerID, err := s.containers.CreateContainer(ctx, config)
 	if err != nil {
 		log.WithError(err).Error("Failed to create container")
 		sess.Exit(1)
 		return
 	}
 
-	s.sessions.Store(sessionID, containerID)
 	cleanup := func() {
-		if err := s.containers.RemoveContainer(ctx, containerID); err != nil {
+		if err := s.containers.RemoveContainer(ctx, config, containerID); err != nil {
 			log.WithError(err).Error("Failed to remove container")
 		}
-		s.sessions.Delete(sessionID)
 	}
 	defer cleanup()
 
@@ -193,6 +192,16 @@ func (s *Server) Run() error {
 			},
 		},
 	}
+
+	// Trap CTRL+c and run cleanup
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		s.log.Info("Caught interrupt signal, cleaning up")
+		s.containers.CleanUpContainers(context.Background())
+		os.Exit(0)
+	}()
 
 	return server.ListenAndServe()
 }
