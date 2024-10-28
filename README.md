@@ -52,8 +52,6 @@ ssh-keygen -t rsa -f data/server/ssh_host_key -N ""
 OAUTH2_OAUTH_ENDPOINT=http://proxy:3000
 OAUTH2_CLIENT_ID=your_client_id
 OAUTH2_CLIENT_SECRET=your_client_secret
-DOCKER_IMAGE=gurkengewuerz/shell
-DOCKER_CAP_ADD=NET_ADMIN,NET_RAW
 QUOTA=1GB
 DOCKER_MEMORY_LIMIT=512M
 DOCKER_CPU_LIMIT=1.0
@@ -81,13 +79,15 @@ The system can be configured through environment variables:
 
 ## Usage
 
-1. Start the services using Docker Compose inside [`docker/`](docker/):
+1. Manually pull the Docker you are using in $DOCKER_IMAGE shell image. There is no mechanism implemented to automatically pull the image at runtime.
+
+2. Start the services using Docker Compose inside [`docker/`](docker/):
 
 ```bash
 docker-compose up -d
 ```
 
-2. Connect to the SSH server:
+3. Connect to the SSH server:
 
 ```bash
 ssh -p 2222 username@hostname
