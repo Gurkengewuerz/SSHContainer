@@ -1,16 +1,17 @@
 package server
 
 import (
-    "fmt"
-    "strings"
+	"fmt"
+	"strings"
 
-    "github.com/kelseyhightower/envconfig"
+	"github.com/kelseyhightower/envconfig"
 )
 
 type Config struct {
 	// SSH Configuration
 	SSHPort    string `envconfig:"SSH_PORT" default:"2222"`
 	SSHHostKey string `envconfig:"SSH_HOST_KEY" default:"/app/ssh_host_key"`
+	LogLevel   int    `envconfig:"LOG_LEVEL" default:"4"`
 
 	// OAuth Configuration
 	OAuthEndpoint string `envconfig:"OAUTH_ENDPOINT" default:"http://proxy:3000"`

@@ -18,6 +18,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
+	log.SetLevel(logrus.Level(config.LogLevel))
 
 	srv, err := server.New(config, log)
 	if err != nil {

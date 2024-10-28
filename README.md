@@ -66,6 +66,8 @@ The system can be configured through environment variables:
 |-----------------------|----------------------------------|-------------------|
 | `SSH_PORT`            | SSH server port                  | 2222              |
 | `SSH_HOST_KEY`        | Path to SSH host key             | /app/ssh_host_key |
+| `LOG_LEVEL`           | Log level from 0-6. 4 being Info | `4`               | No       |
+| `QUOTA`               | Disk quota for user storage      | 1GB               |
 | `OAUTH_ENDPOINT`      | OAuth2 endpoint URL              | http://proxy:3000 |
 | `CLIENT_ID`           | OAuth2 client ID                 | (required)        |
 | `CLIENT_SECRET`       | OAuth2 client secret             | (required)        |
@@ -79,7 +81,8 @@ The system can be configured through environment variables:
 
 ## Usage
 
-1. Manually pull the Docker you are using in $DOCKER_IMAGE shell image. There is no mechanism implemented to automatically pull the image at runtime.
+1. Manually pull the Docker you are using in $DOCKER_IMAGE shell image. There is no mechanism implemented to
+   automatically pull the image at runtime.
 
 2. Start the services using Docker Compose inside [`docker/`](docker/):
 
