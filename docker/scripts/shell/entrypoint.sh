@@ -21,5 +21,5 @@ iptables -A OUTPUT -m owner --uid-owner $CREATING_USER -j REJECT
 ip6tables -A OUTPUT -m owner --uid-owner $CREATING_USER -j REJECT
 
 cd "$CREATING_WORKSPACE"
-exec runuser -m $CREATING_USER -c "$@"
+exec runuser $CREATING_USER -c "$@"
 #exec "$@"
