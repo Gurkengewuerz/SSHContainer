@@ -33,3 +33,11 @@ go.work.sum
 /out/
 
 docker/data/*
+
+docker/templates/.zcompdump
+docker/templates/.local
+docker/templates/.zsh_history
+docker/templates/.cache
+docker/templates/.npm
+docker/templates/go
+

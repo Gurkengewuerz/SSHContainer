@@ -3,3 +3,9 @@ docker/templates/
 docker/*.conf
 docker/compose.yml
 docker/*Dockerfile
+docker/templates/.zcompdump
+docker/templates/.local
+docker/templates/.zsh_history
+docker/templates/.cache
+docker/templates/.npm
+docker/templates/go

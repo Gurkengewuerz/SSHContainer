@@ -13,6 +13,7 @@ export NODE_PATH=$HOME/nvm/v$NODE_VERSION/lib/node_modules
 export EDITOR=nvim
 export VISUAL=nvim
 
+if [ -z "${IS_DEV_ENV}" ]; then
 export http_proxy=http://proxy:3128
 export https_proxy=http://proxy:3128
 export no_proxy=localhost,proxy
@@ -20,6 +21,8 @@ export HTTP_PROXY=http://proxy:3128
 export HTTPS_PROXY=http://proxy:3128
 export NO_PROXY=localhost,proxy
 export ftp_proxy=http://proxy:3128
+fi
+
 
 ##### Zsh/Oh-my-Zsh Configuration
 export ZSH="$HOME/.oh-my-zsh"

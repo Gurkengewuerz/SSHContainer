@@ -1,0 +1,14 @@
+# docker compose -f shell.compose.yml run --rm shell
+services:
+
+  shell:
+    build:
+      context: ../
+      dockerfile: docker/Server.Dockerfile
+    image: ghcr.io/gurkengewuerz/sshcontainer-shell:main
+    restart: no
+    entrypoint: ["/bin/bash", "-c", "chown -R $$CREATING_USER:$$CREATING_USER $$CREATING_WORKSPACE && chmod -R 750 $$CREATING_WORKSPACE && /bin/bash"]
+    environment:
+      - IS_DEV_ENV=true
+    volumes:
+      - "./templates:/workspace"
