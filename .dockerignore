@@ -9,3 +9,4 @@ docker/templates/.zsh_history
 docker/templates/.cache
 docker/templates/.npm
 docker/templates/go
+docker/templates/.config/nvim/lazyvim.json

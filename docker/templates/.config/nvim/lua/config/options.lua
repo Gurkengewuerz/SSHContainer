@@ -6,25 +6,6 @@ vim.opt.number = true
 --  Experiment for yourself to see if you like it!
 vim.opt.relativenumber = false
 
--- Clipboard
-if vim.env.SSH_TTY then
-    vim.opt.clipboard:append("unnamedplus")
-    local function paste()
-        return vim.split(vim.fn.getreg(""), "\n")
-    end
-    vim.g.clipboard = {
-        name = "OSC 52",
-        copy = {
-            ["+"] = require("vim.ui.clipboard.osc52").copy("+"),
-            ["*"] = require("vim.ui.clipboard.osc52").copy("*"),
-        },
-        paste = {
-            ["+"] = paste,
-            ["*"] = paste,
-        },
-    }
-end
-
 -- Case-insensitive searching UNLESS \C or one or more capital letters in the search term
 vim.opt.ignorecase = true
 vim.opt.smartcase = true
@@ -49,3 +30,12 @@ vim.opt.timeoutlen = 300
 
 -- Show which line your cursor is on
 vim.opt.cursorline = true
+
+
+vim.opt.fillchars = {
+  eob = ' ', -- suppress ~ at EndOfBuffer
+  fold = ' ', -- space character used for folding
+  foldopen = '', -- Unfolded text
+  foldsep = ' ', -- Open fold middle marker
+  foldclose = '', -- Folded text
+}

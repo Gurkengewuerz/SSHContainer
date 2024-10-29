@@ -25,6 +25,7 @@ fi
 
 
 ##### Zsh/Oh-my-Zsh Configuration
+export skip_global_compinit=1
 export ZSH="$HOME/.oh-my-zsh"
 export ZSH_COMPDUMP=$ZSH/cache/.zcompdump
 
