@@ -69,6 +69,8 @@ func (s *Server) handleSession(sess ssh.Session) {
 	log := s.log.WithFields(logrus.Fields{
 		"user":      sess.User(),
 		"sessionID": sessionID,
+		"subsystem": sess.Subsystem(),
+		"command":   sess.Command(),
 	})
 
 	log.Info("Starting new session")
@@ -180,6 +182,7 @@ func (s *Server) Run() error {
 		return fmt.Errorf("failed to parse host key: %w", err)
 	}
 
+	forwardHandler := &ssh.ForwardedTCPHandler{}
 	server := &ssh.Server{
 		Addr:            fmt.Sprintf(":%s", s.config.SSHPort),
 		Handler:         s.handleSession,
@@ -187,9 +190,25 @@ func (s *Server) Run() error {
 		PasswordHandler: s.authenticateUser,
 		ConnCallback:    nil,
 		SubsystemHandlers: map[string]ssh.SubsystemHandler{
-			"sftp": func(s ssh.Session) {
-				s.Exit(0)
+			"sftp": func(sess ssh.Session) {
+				defer sess.Close()
+				s.log.WithFields(logrus.Fields{
+					"user": sess.User(),
+				}).Warn("SFTP subsystem is disabled")
+				sess.Exit(0)
 			},
+		},
+		LocalPortForwardingCallback: ssh.LocalPortForwardingCallback(func(ctx ssh.Context, dhost string, dport uint32) bool {
+			s.log.Warn("attempt to bind", dhost, dport, "denied")
+			return false
+		}),
+		ReversePortForwardingCallback: ssh.ReversePortForwardingCallback(func(ctx ssh.Context, host string, port uint32) bool {
+			s.log.Warn("attempt to bind", host, port, "denied")
+			return false
+		}),
+		RequestHandlers: map[string]ssh.RequestHandler{
+			"tcpip-forward":        forwardHandler.HandleSSHRequest,
+			"cancel-tcpip-forward": forwardHandler.HandleSSHRequest,
 		},
 	}
 
