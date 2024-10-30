@@ -3,6 +3,14 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -10,12 +18,16 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/sirupsen/logrus"
-	"io"
-	"os"
-	"os/exec"
-	"path"
-	"strings"
 )
+
+// UserContainer represents a container for a specific user
+type UserContainer struct {
+	ID            string
+	User          string
+	ActiveStreams int
+	LastUsed      time.Time
+	mutex         sync.Mutex
+}
 
 type ContainerConfig struct {
 	Image   string
@@ -28,9 +40,12 @@ type ContainerConfig struct {
 }
 
 type ContainerManager struct {
-	client *client.Client
-	config *Config
-	log    *logrus.Logger
+	client          *client.Client
+	config          *Config
+	log             *logrus.Logger
+	containers      map[string]*UserContainer // map of username to container
+	containersMutex sync.RWMutex
+	shutdownChan    chan struct{}
 }
 
 func NewContainerManager(config *Config, log *logrus.Logger) (*ContainerManager, error) {
@@ -41,33 +56,117 @@ func NewContainerManager(config *Config, log *logrus.Logger) (*ContainerManager,
 
 	containerId := os.Getenv("CONTAINER_ID")
 	if containerId == "" {
-		return nil, fmt.Errorf("failed to get current container ID: %v", err)
+		return nil, fmt.Errorf("failed to get current container ID")
 	}
 
 	ctx := context.Background()
-	container, err := dockerClient.ContainerInspect(ctx, containerId)
+	ct, err := dockerClient.ContainerInspect(ctx, containerId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %v", err)
 	}
 
-	if len(container.NetworkSettings.Networks) == 0 && len(config.Networks) == 0 {
+	if len(ct.NetworkSettings.Networks) == 0 && len(config.Networks) == 0 {
 		return nil, fmt.Errorf("no network settings found")
 	}
 
-	for networkName := range container.NetworkSettings.Networks {
-		if len(container.NetworkSettings.Networks) == 1 || strings.HasSuffix(networkName, "_default") {
+	for networkName := range ct.NetworkSettings.Networks {
+		if len(ct.NetworkSettings.Networks) == 1 || strings.HasSuffix(networkName, "_default") {
 			config.Networks = append(config.Networks, networkName)
 		}
 	}
 
-	return &ContainerManager{
-		client: dockerClient,
-		config: config,
-		log:    log,
-	}, nil
+	cm := &ContainerManager{
+		client:       dockerClient,
+		config:       config,
+		log:          log,
+		containers:   make(map[string]*UserContainer),
+		shutdownChan: make(chan struct{}),
+	}
+
+	// Start container cleanup goroutine
+	go cm.cleanupLoop()
+
+	return cm, nil
 }
 
-func (cm *ContainerManager) CreateContainer(ctx context.Context, cfg ContainerConfig) (string, error) {
+func (cm *ContainerManager) cleanupLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			cm.cleanupIdleContainers()
+		case <-cm.shutdownChan:
+			return
+		}
+	}
+}
+
+func (cm *ContainerManager) cleanupIdleContainers() {
+	cm.containersMutex.Lock()
+	defer cm.containersMutex.Unlock()
+
+	ctx := context.Background()
+	timeout := time.Duration(cm.config.ContainerIdleTimeout) * time.Second
+
+	for username, uc := range cm.containers {
+		uc.mutex.Lock()
+		if uc.ActiveStreams == 0 && time.Since(uc.LastUsed) > timeout {
+			cm.log.WithFields(logrus.Fields{
+				"user":        username,
+				"containerID": uc.ID,
+				"idleTime":    time.Since(uc.LastUsed),
+			}).Info("Removing idle container")
+
+			if err := cm.removeContainer(ctx, username); err != nil {
+				cm.log.WithError(err).Error("Failed to remove idle container")
+			}
+		}
+		uc.mutex.Unlock()
+	}
+}
+
+func (cm *ContainerManager) GetOrCreateContainer(ctx context.Context, username string, env []string) (string, error) {
+	cm.containersMutex.Lock()
+	defer cm.containersMutex.Unlock()
+
+	// Check if ct exists for user
+	if ct, exists := cm.containers[username]; exists {
+		ct.mutex.Lock()
+		ct.ActiveStreams++
+		ct.LastUsed = time.Now()
+		ct.mutex.Unlock()
+		return ct.ID, nil
+	}
+
+	// Create new ct for user
+	containerConfig := ContainerConfig{
+		Image: cm.config.DockerImage,
+		User:  username,
+		Env:   env,
+	}
+
+	containerID, err := cm.createContainer(ctx, containerConfig)
+	if err != nil {
+		return "", err
+	}
+
+	if err := cm.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+		return "", fmt.Errorf("failed to start ct: %w", err)
+	}
+
+	cm.containers[username] = &UserContainer{
+		ID:            containerID,
+		User:          username,
+		ActiveStreams: 1,
+		LastUsed:      time.Now(),
+	}
+
+	return containerID, nil
+}
+
+func (cm *ContainerManager) createContainer(ctx context.Context, cfg ContainerConfig) (string, error) {
 	env := cfg.Env
 	devices := cm.config.DockerDevices
 	capAdd := cm.config.DockerCapAdd
@@ -77,22 +176,16 @@ func (cm *ContainerManager) CreateContainer(ctx context.Context, cfg ContainerCo
 	if err != nil {
 		return "", fmt.Errorf("failed to create VFS mount: %w", err)
 	}
-	// Used to pass the block device to the container
 	env = append(env, fmt.Sprintf("BLOCK_DEVICE=%s", blockDevice))
 	devices = append(devices, blockDevice)
 	devices = append(devices, "/dev/loop-control")
 	capAdd = append(capAdd, "SYS_ADMIN")
 
 	containerConfig := &container.Config{
-		Image:        cfg.Image,
-		Cmd:          cfg.Cmd,
-		Env:          env,
-		Tty:          cfg.IsPty,
-		OpenStdin:    true,
-		AttachStdin:  true,
-		AttachStdout: true,
-		AttachStderr: true,
-		StdinOnce:    true,
+		Image:     cfg.Image,
+		Env:       env,
+		Cmd:       cfg.Cmd,
+		OpenStdin: true,
 		Labels: map[string]string{
 			"de.mc8051.sshcontainer":      "true",
 			"de.mc8051.sshcontainer.user": cfg.User,
@@ -122,8 +215,6 @@ func (cm *ContainerManager) CreateContainer(ctx context.Context, cfg ContainerCo
 
 	mounts := make([]mount.Mount, 0)
 
-	cm.log.WithFields(containerFields).WithField("mounts", mounts).WithField("devices", devMappings).Debug("Generated mounts")
-
 	hostConfig := &container.HostConfig{
 		NetworkMode:    container.NetworkMode(cm.config.NetworkMode),
 		CapAdd:         capAdd,
@@ -137,32 +228,26 @@ func (cm *ContainerManager) CreateContainer(ctx context.Context, cfg ContainerCo
 		},
 	}
 
-	// Create an empty networking config that we'll fill if additional networks are specified
 	networkingConfig := &network.NetworkingConfig{}
 	endpointsConfig := make(map[string]*network.EndpointSettings)
 
-	// If we have additional networks to connect to, set up the first one as the default
 	if len(cm.config.Networks) > 0 {
-		// First network becomes the default network at container creation
 		endpointsConfig[cm.config.Networks[0]] = &network.EndpointSettings{}
 		networkingConfig.EndpointsConfig = endpointsConfig
 	}
 
-	resp, err := cm.client.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, "")
+	resp, err := cm.client.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, fmt.Sprintf("sshcontainer-%s", cfg.User))
 	if err != nil {
 		return "", fmt.Errorf("failed to create container: %w", err)
 	}
 
 	containerFields["containerID"] = resp.ID
-	cm.log.WithFields(containerFields).Debug("Created container")
 
 	if len(cm.config.Networks) > 1 {
 		cm.log.WithFields(containerFields).Debug("Connecting to additional networks")
-		// Connect to additional networks (skip the first one as it's already connected)
 		for _, networkName := range cm.config.Networks[1:] {
 			err := cm.client.NetworkConnect(ctx, networkName, resp.ID, &network.EndpointSettings{})
 			if err != nil {
-				// If network connection fails, cleanup the container and return error
 				cm.client.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
 				return "", fmt.Errorf("failed to connect to network %s: %w", networkName, err)
 			}
@@ -170,86 +255,125 @@ func (cm *ContainerManager) CreateContainer(ctx context.Context, cfg ContainerCo
 	}
 
 	cm.log.WithFields(containerFields).Info("Created container")
-
 	return resp.ID, nil
 }
 
-func (cm *ContainerManager) StartContainer(ctx context.Context, containerID string) error {
-	if err := cm.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
-		return fmt.Errorf("failed to start container: %w", err)
-	}
+func (cm *ContainerManager) ReleaseContainer(username string) {
+	cm.log.WithFields(logrus.Fields{
+		"username": username,
+	}).Debug("Releasing container")
+	cm.containersMutex.RLock()
+	defer cm.containersMutex.RUnlock()
 
-	cm.log.WithField("containerID", containerID).Info("Started container")
-	return nil
+	if ct, exists := cm.containers[username]; exists {
+		ct.mutex.Lock()
+		ct.ActiveStreams--
+		ct.LastUsed = time.Now()
+		ct.mutex.Unlock()
+	}
 }
 
-func (cm *ContainerManager) AttachContainer(ctx context.Context, containerID string) (types.HijackedResponse, error) {
-	resp, err := cm.client.ContainerAttach(ctx, containerID, container.AttachOptions{
+func (cm *ContainerManager) AttachToContainer(ctx context.Context, containerID string) (types.HijackedResponse, error) {
+	cm.log.WithFields(logrus.Fields{
+		"containerID": containerID,
+	}).Debug("Attaching to container")
+	return cm.client.ContainerAttach(ctx, containerID, container.AttachOptions{
 		Stream: true,
 		Stdin:  true,
 		Stdout: true,
 		Stderr: true,
 	})
-	if err != nil {
-		return types.HijackedResponse{}, fmt.Errorf("failed to attach to container: %w", err)
-	}
-
-	return resp, nil
 }
 
-func (cm *ContainerManager) ResizeContainer(ctx context.Context, containerID string, height, width uint16) error {
-	return cm.client.ContainerResize(ctx, containerID, container.ResizeOptions{
+func (cm *ContainerManager) ExecInContainer(ctx context.Context, containerID string, env []string, cmd []string, user string, isPty bool) (types.HijackedResponse, string, error) {
+	cm.log.WithFields(logrus.Fields{
+		"containerID": containerID,
+		"env":         env,
+		"cmd":         cmd,
+	}).Debug("Executing command in container")
+	execConfig := container.ExecOptions{
+		User:         user,
+		Tty:          isPty,
+		AttachStdin:  true,
+		AttachStderr: true,
+		AttachStdout: true,
+		Env:          env,
+		Cmd:          cmd,
+	}
+
+	execCreateResp, err := cm.client.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return types.HijackedResponse{}, "", fmt.Errorf("failed to create exec: %w", err)
+	}
+
+	execAttachResp, err := cm.client.ContainerExecAttach(ctx, execCreateResp.ID, container.ExecAttachOptions{
+		Tty: isPty,
+	})
+	if err != nil {
+		return types.HijackedResponse{}, "", fmt.Errorf("failed to attach to exec: %w", err)
+	}
+
+	return execAttachResp, execCreateResp.ID, nil
+}
+
+func (cm *ContainerManager) ResizeExec(ctx context.Context, execID string, height, width uint16) error {
+	return cm.client.ContainerExecResize(ctx, execID, container.ResizeOptions{
 		Height: uint(height),
 		Width:  uint(width),
 	})
 }
 
-func (cm *ContainerManager) WaitContainer(ctx context.Context, containerID string) (<-chan container.WaitResponse, <-chan error) {
-	return cm.client.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
-}
-
-func (cm *ContainerManager) RemoveContainer(ctx context.Context, cfg ContainerConfig, containerID string) error {
-	err := cm.client.ContainerRemove(ctx, containerID, container.RemoveOptions{
-		Force: true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to remove container: %w", err)
-	}
-
-	cm.log.WithField("containerID", containerID).Info("Removed container")
-
-	err = cm.RemoveVFSMount(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to remove vfs mount: %w", err)
-	}
-	return nil
+func (cm *ContainerManager) Shutdown() {
+	close(cm.shutdownChan)
+	cm.CleanUpContainers(context.Background())
 }
 
 func (cm *ContainerManager) CleanUpContainers(ctx context.Context) error {
-	cm.log.Info("Cleaning up containers")
-	// Create a filter for the specified label
+	cm.log.Info("Cleaning up all containers")
+
 	filterArgs := filters.NewArgs()
 	filterArgs.Add("label", "de.mc8051.sshcontainer=true")
 
-	// List containers with the filter
 	containers, err := cm.client.ContainerList(ctx, container.ListOptions{
-		All:     true, // Include stopped containers
+		All:     true,
 		Filters: filterArgs,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to list containers: %v", err)
+		return fmt.Errorf("failed to list containers: %w", err)
 	}
 
 	for _, c := range containers {
-		cm.RemoveContainer(ctx, ContainerConfig{
-			User: c.Labels["de.mc8051.sshcontainer.user"],
-		}, c.ID)
+		username := c.Labels["de.mc8051.sshcontainer.user"]
+		if err := cm.removeContainer(ctx, username); err != nil {
+			cm.log.WithError(err).Error("Failed to remove container during cleanup")
+		}
+	}
+
+	return nil
+}
+
+func (cm *ContainerManager) removeContainer(ctx context.Context, username string) error {
+	if ct, exists := cm.containers[username]; exists {
+		cm.log.WithFields(logrus.Fields{
+			"username":    username,
+			"containerID": ct.ID,
+		}).Info("Removing container")
+		if err := cm.client.ContainerRemove(ctx, ct.ID, container.RemoveOptions{
+			Force: true,
+		}); err != nil {
+			return fmt.Errorf("failed to remove container: %w", err)
+		}
+
+		if err := cm.RemoveVFSMount(ctx, ContainerConfig{User: username}); err != nil {
+			return fmt.Errorf("failed to remove vfs mount: %w", err)
+		}
+
+		delete(cm.containers, username)
 	}
 	return nil
 }
 
 func (cm *ContainerManager) CreateVFSMount(ctx context.Context, cfg ContainerConfig) (string, error) {
-	// Check if file exists at /vfs/cfg.User, if not copy from /vfs.img
 	userVFS := path.Join("/vfs", fmt.Sprintf("%s.img", cfg.User))
 
 	fields := logrus.Fields{
@@ -261,7 +385,6 @@ func (cm *ContainerManager) CreateVFSMount(ctx context.Context, cfg ContainerCon
 	if err != nil {
 		if os.IsNotExist(err) {
 			cm.log.WithFields(fields).Info("Copying VFS image to user VFS")
-			// Copy /vfs.img to /vfs/cfg.User
 			vfsImg, err := os.Open("/vfs.img")
 			if err != nil {
 				return "", fmt.Errorf("failed to open VFS image: %w", err)
@@ -291,7 +414,6 @@ func (cm *ContainerManager) CreateVFSMount(ctx context.Context, cfg ContainerCon
 	}
 
 	cm.log.WithFields(fields).Info("Mounting user VFS")
-	// exec command to mount userVFS
 	if err := exec.Command("bash", "-c", fmt.Sprintf("NEXT=\"$(losetup -f)\" && losetup $NEXT \"%s\" && echo $NEXT", userVFS)).Run(); err != nil {
 		return "", fmt.Errorf("failed to mount user VFS: %w", err)
 	}

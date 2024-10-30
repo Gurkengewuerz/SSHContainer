@@ -25,7 +25,6 @@ func main() {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
-	log.WithField("port", config.SSHPort).Info("Starting SSH server")
 	if err := srv.Run(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}

@@ -3,16 +3,19 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/charmbracelet/ssh"
-	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/sirupsen/logrus"
-	gossh "golang.org/x/crypto/ssh"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/charmbracelet/ssh"
+	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/sirupsen/logrus"
+	gossh "golang.org/x/crypto/ssh"
 )
 
 type Server struct {
@@ -65,12 +68,11 @@ func (s *Server) authenticateUser(ctx ssh.Context, password string) bool {
 func (s *Server) handleSession(sess ssh.Session) {
 	ctx := context.Background()
 	sessionID := sess.Context().Value(ssh.ContextKeySessionID).(string)
+	username := sess.User()
 
 	log := s.log.WithFields(logrus.Fields{
-		"user":      sess.User(),
+		"user":      username,
 		"sessionID": sessionID,
-		"subsystem": sess.Subsystem(),
-		"command":   sess.Command(),
 	})
 
 	log.Info("Starting new session")
@@ -78,59 +80,67 @@ func (s *Server) handleSession(sess ssh.Session) {
 	// Get PTY info if available
 	ptyReq, winCh, isPty := sess.Pty()
 
-	// Create container config
-	config := ContainerConfig{
-		Image:   s.config.DockerImage,
-		Cmd:     sess.Command(),
-		Env:     sess.Environ(),
-		IsPty:   isPty,
-		PtyRows: uint16(ptyReq.Window.Height),
-		PtyCols: uint16(ptyReq.Window.Width),
-		User:    sess.User(),
-	}
-	containerID, err := s.containers.CreateContainer(ctx, config)
+	// Get or create container for user
+	containerID, err := s.containers.GetOrCreateContainer(ctx, username, sess.Environ())
 	if err != nil {
-		log.WithError(err).Error("Failed to create container")
+		log.WithError(err).Error("Failed to get or create container")
 		sess.Exit(1)
 		return
 	}
+	defer s.containers.ReleaseContainer(username)
 
-	cleanup := func() {
-		if err := s.containers.RemoveContainer(ctx, config, containerID); err != nil {
-			log.WithError(err).Error("Failed to remove container")
-		}
-	}
-	defer cleanup()
-
-	// Start container
-	if err := s.containers.StartContainer(ctx, containerID); err != nil {
-		log.WithError(err).Error("Failed to start container")
-		sess.Exit(1)
-		return
-	}
+	var stream types.HijackedResponse
+	var execID string
 
 	// Attach to container
-	stream, err := s.containers.AttachContainer(ctx, containerID)
+	cmd := s.config.ContainerCMD
+	if len(sess.Command()) > 0 {
+		cmd = sess.Command()
+	}
+	// Execute specific command
+	stream, execID, err = s.containers.ExecInContainer(ctx, containerID, sess.Environ(), cmd, s.config.ContainerUser, isPty)
 	if err != nil {
-		log.WithError(err).Error("Failed to attach to container")
+		log.WithError(err).Error("Failed to exec in container")
 		sess.Exit(1)
 		return
 	}
+
 	defer stream.Close()
 
 	// Handle window size changes if PTY was requested
 	if isPty {
 		go func() {
 			for win := range winCh {
-				if err := s.containers.ResizeContainer(ctx, containerID, uint16(win.Height), uint16(win.Width)); err != nil {
-					log.WithError(err).Error("Failed to resize container")
-					break
+				var err error
+				if execID != "" {
+					err = s.containers.ResizeExec(ctx, execID, uint16(win.Height), uint16(win.Width))
+				} else {
+					err = s.containers.client.ContainerResize(ctx, containerID, container.ResizeOptions{
+						Height: uint(win.Height),
+						Width:  uint(win.Width),
+					})
+				}
+				if err != nil {
+					log.WithError(err).Error("Failed to resize")
 				}
 			}
 		}()
+
+		// Set initial terminal size
+		if execID != "" {
+			err = s.containers.ResizeExec(ctx, execID, uint16(ptyReq.Window.Height), uint16(ptyReq.Window.Width))
+		} else {
+			err = s.containers.client.ContainerResize(ctx, containerID, container.ResizeOptions{
+				Height: uint(ptyReq.Window.Height),
+				Width:  uint(ptyReq.Window.Width),
+			})
+		}
+		if err != nil {
+			log.WithError(err).Error("Failed to set initial terminal size")
+		}
 	}
 
-	// Setup I/O
+	// Setup I/O copying
 	outputErr := make(chan error, 1)
 	go func() {
 		var err error
@@ -147,27 +157,20 @@ func (s *Server) handleSession(sess ssh.Session) {
 		io.Copy(stream.Conn, sess)
 	}()
 
-	// Wait for container
-	statusCh, errCh := s.containers.WaitContainer(ctx, containerID)
-	var status int64 = 255
-
-	for {
-		select {
-		case err = <-errCh:
-			if err != nil {
-				log.WithError(err).Error("Error waiting for container")
-				sess.Exit(1)
-				return
-			}
-		case result := <-statusCh:
-			status = result.StatusCode
-			log.WithField("status", status).Info("Container exited")
-			return
-		case <-sess.Context().Done():
-			log.Info("Session timeout")
+	defer func() {
+		log.Info("Session ended")
+	}()
+	// Wait for either the session to end or an error to occur
+	select {
+	case err := <-outputErr:
+		if err != nil {
+			log.WithError(err).Error("Error in I/O copy")
 			sess.Exit(1)
 			return
 		}
+	case <-sess.Context().Done():
+		log.Info("Session timeout")
+		return
 	}
 }
 
@@ -212,15 +215,22 @@ func (s *Server) Run() error {
 		},
 	}
 
-	// Trap CTRL+c and run cleanup
+	// Set up signal handling for graceful shutdown
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
 		s.log.Info("Caught interrupt signal, cleaning up")
-		s.containers.CleanUpContainers(context.Background())
+		s.containers.Shutdown()
 		os.Exit(0)
 	}()
 
+	s.log.WithField("port", s.config.SSHPort).Info("Starting SSH server")
 	return server.ListenAndServe()
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.log.Info("Shutting down server")
+	s.containers.Shutdown()
+	return nil
 }

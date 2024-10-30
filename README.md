@@ -62,22 +62,25 @@ DOCKER_READ_ONLY=false
 
 The system can be configured through environment variables:
 
-| Variable              | Description                      | Default           |
-|-----------------------|----------------------------------|-------------------|
-| `SSH_PORT`            | SSH server port                  | 2222              |
-| `SSH_HOST_KEY`        | Path to SSH host key             | /app/ssh_host_key |
-| `LOG_LEVEL`           | Log level from 0-6. 4 being Info | `4`               | No       |
-| `QUOTA`               | Disk quota for user storage      | 1GB               |
-| `OAUTH_ENDPOINT`      | OAuth2 endpoint URL              | http://proxy:3000 |
-| `CLIENT_ID`           | OAuth2 client ID                 | (required)        |
-| `CLIENT_SECRET`       | OAuth2 client secret             | (required)        |
-| `DOCKER_IMAGE`        | Base Docker image for containers | ubuntu:latest     |
-| `DOCKER_MEMORY_LIMIT` | Container memory limit           | 512M              |
-| `DOCKER_CPU_LIMIT`    | Container CPU limit              | 1.0               |
-| `DOCKER_NETWORK_MODE` | Docker network mode              | bridge            |
-| `DOCKER_CAP_ADD`      | Additional Docker capabilities   | []                |
-| `DOCKER_SEC_OPT`      | Docker security options          | []                |
-| `DOCKER_READ_ONLY`    | Enable read-only root filesystem | false             |
+| Variable                 | Description                      | Default           |
+|--------------------------|----------------------------------|-------------------|
+| `SSH_PORT`               | SSH server port                  | 2222              |
+| `SSH_HOST_KEY`           | Path to SSH host key             | /app/ssh_host_key |
+| `LOG_LEVEL`              | Log level from 0-6. 4 being Info | `4`               |
+| `QUOTA`                  | Disk quota for user storage      | 1GB               |
+| `OAUTH_ENDPOINT`         | OAuth2 endpoint URL              | http://proxy:3000 |
+| `CLIENT_ID`              | OAuth2 client ID                 | (required)        |
+| `CLIENT_SECRET`          | OAuth2 client secret             | (required)        |
+| `DOCKER_IMAGE`           | Base Docker image for containers | ubuntu:latest     |
+| `DOCKER_MEMORY_LIMIT`    | Container memory limit           | 512M              |
+| `DOCKER_CPU_LIMIT`       | Container CPU limit              | 1.0               |
+| `DOCKER_NETWORK_MODE`    | Docker network mode              | bridge            |
+| `DOCKER_CAP_ADD`         | Additional Docker capabilities   | []                |
+| `DOCKER_SEC_OPT`         | Docker security options          | []                |
+| `DOCKER_READ_ONLY`       | Enable read-only root filesystem | false             |
+| `CONTAINER_IDLE_TIMEOUT` | Container cleaup timeout         | 60                |
+| `CONTAINER_CMD`          | Container exec cmd               | `/bin/bash`       |
+| `CONTAINER_USER`         | Container user                   | _empty_           |
 
 ## Usage
 

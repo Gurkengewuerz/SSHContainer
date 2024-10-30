@@ -19,6 +19,10 @@ services:
       - DOCKER_MEMORY_LIMIT=${DOCKER_MEMORY_LIMIT:-512M}
       - DOCKER_CPU_LIMIT=${DOCKER_CPU_LIMIT:-1.0}
       - DOCKER_READ_ONLY=${DOCKER_READ_ONLY:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-6}
+      # Must match to the docker image
+      - CONTAINER_CMD=${CONTAINER_CMD:-/bin/zsh}
+      - CONTAINER_USER=${CONTAINER_USER:-user}
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./data/server:/app"

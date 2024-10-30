@@ -29,6 +29,10 @@ type Config struct {
 	DockerSecurityOpt []string `envconfig:"DOCKER_SEC_OPT" default:""`
 	DockerReadOnly    bool     `envconfig:"DOCKER_READ_ONLY" default:"false"`
 
+	ContainerCMD         []string `envconfig:"CONTAINER_CMD" default:"/bin/bash"`
+	ContainerUser        string   `envconfig:"CONTAINER_USER" default:""`
+	ContainerIdleTimeout int      `envconfig:"CONTAINER_IDLE_TIMEOUT" default:"60"` // 1 minute default
+
 	// Parsed values
 	memoryLimitBytes int64
 	cpuLimitNano     int64
