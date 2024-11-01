@@ -7,7 +7,7 @@ authenticates users via OAuth2 and creates dedicated containers with customizabl
 
 - 🔒 Secure user isolation through Docker containers
 - 🔑 OAuth2 authentication integration
-- 💾 Persistent user storage through VFS mounting
+- 💾 Persistent user storage through BTRFS-based VFS mounting
 - 🎯 Configurable resource limits (CPU, Memory, Disk Quota)
 - 🛡️ Enhanced security with read-only root filesystem option
 - 🔧 Customizable Docker capabilities and security options
@@ -22,6 +22,18 @@ authenticates users via OAuth2 and creates dedicated containers with customizabl
 - Go 1.23 or higher
 - Docker Compose v2
 - Linux host system (for VFS mounting)
+- BTRFS filesystem support (for VFS quota management)
+
+### BTRFS Setup for WSL
+
+If you're running in a WSL environment, you'll need to set up BTRFS support. Execute these commands in your WSL Docker Desktop distribution:
+
+```bash
+wsl -d docker-desktop
+apk add btrfs-progs
+echo btrfs >> /etc/modules
+modprobe btrfs
+```
 
 ## Installation
 
@@ -81,6 +93,7 @@ The system can be configured through environment variables:
 | `CONTAINER_IDLE_TIMEOUT` | Container cleaup timeout         | 60                |
 | `CONTAINER_CMD`          | Container exec cmd               | `/bin/bash`       |
 | `CONTAINER_USER`         | Container user                   | _empty_           |
+| `CONTAINER_VFS_MOUNT`    | Container VFS Folder mount       | `/workspace`      |
 
 ## Usage
 

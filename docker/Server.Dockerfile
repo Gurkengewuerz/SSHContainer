@@ -20,7 +20,8 @@ RUN set -x && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -
     ca-certificates \
     bc \
     coreutils \
-    e2fsprogs && \
+    e2fsprogs \
+    btrfs-progs && \
     rm -rf /var/lib/apt/lists/*
 
 ENV QUOTA=1GB

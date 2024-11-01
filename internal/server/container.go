@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/sirupsen/logrus"
 )
@@ -172,14 +173,11 @@ func (cm *ContainerManager) createContainer(ctx context.Context, cfg ContainerCo
 	capAdd := cm.config.DockerCapAdd
 	secOpt := cm.config.DockerSecurityOpt
 
-	blockDevice, err := cm.CreateVFSMount(ctx, cfg)
+	volumeName, blockDevice, err := cm.CreateVFSMount(ctx, cfg)
 	if err != nil {
 		return "", fmt.Errorf("failed to create VFS mount: %w", err)
 	}
 	env = append(env, fmt.Sprintf("BLOCK_DEVICE=%s", blockDevice))
-	devices = append(devices, blockDevice)
-	devices = append(devices, "/dev/loop-control")
-	capAdd = append(capAdd, "SYS_ADMIN")
 
 	containerConfig := &container.Config{
 		Image:     cfg.Image,
@@ -214,6 +212,11 @@ func (cm *ContainerManager) createContainer(ctx context.Context, cfg ContainerCo
 	}
 
 	mounts := make([]mount.Mount, 0)
+	mounts = append(mounts, mount.Mount{
+		Type:   mount.TypeVolume,
+		Source: volumeName,
+		Target: cm.config.ContainerVFSMountPath,
+	})
 
 	hostConfig := &container.HostConfig{
 		NetworkMode:    container.NetworkMode(cm.config.NetworkMode),
@@ -359,7 +362,8 @@ func (cm *ContainerManager) removeContainer(ctx context.Context, username string
 			"containerID": ct.ID,
 		}).Info("Removing container")
 		if err := cm.client.ContainerRemove(ctx, ct.ID, container.RemoveOptions{
-			Force: true,
+			Force:         true,
+			RemoveVolumes: true,
 		}); err != nil {
 			return fmt.Errorf("failed to remove container: %w", err)
 		}
@@ -373,12 +377,14 @@ func (cm *ContainerManager) removeContainer(ctx context.Context, username string
 	return nil
 }
 
-func (cm *ContainerManager) CreateVFSMount(ctx context.Context, cfg ContainerConfig) (string, error) {
+func (cm *ContainerManager) CreateVFSMount(ctx context.Context, cfg ContainerConfig) (string, string, error) {
 	userVFS := path.Join("/vfs", fmt.Sprintf("%s.img", cfg.User))
+	volumeName := fmt.Sprintf("sshcontainer-vfs-%s", cfg.User)
 
 	fields := logrus.Fields{
-		"user":    cfg.User,
-		"userVFS": userVFS,
+		"user":       cfg.User,
+		"userVFS":    userVFS,
+		"volumeName": volumeName,
 	}
 
 	_, err := os.Stat(userVFS)
@@ -387,43 +393,75 @@ func (cm *ContainerManager) CreateVFSMount(ctx context.Context, cfg ContainerCon
 			cm.log.WithFields(fields).Info("Copying VFS image to user VFS")
 			vfsImg, err := os.Open("/vfs.img")
 			if err != nil {
-				return "", fmt.Errorf("failed to open VFS image: %w", err)
+				return "", "", fmt.Errorf("failed to open VFS image: %w", err)
 			}
 			defer vfsImg.Close()
 			cm.log.WithFields(fields).Info("Opened VFS image")
 
 			userVFS, err := os.Create(userVFS)
 			if err != nil {
-				return "", fmt.Errorf("failed to create user VFS: %w", err)
+				return "", "", fmt.Errorf("failed to create user VFS: %w", err)
 			}
 			defer userVFS.Close()
 			cm.log.WithFields(fields).Info("Created user VFS")
 
 			if _, err := io.Copy(userVFS, vfsImg); err != nil {
-				return "", fmt.Errorf("failed to copy VFS image: %w", err)
+				return "", "", fmt.Errorf("failed to copy VFS image: %w", err)
 			}
 			cm.log.WithFields(fields).Info("Copied VFS image")
 		} else {
-			return "", fmt.Errorf("failed to stat user VFS: %w", err)
+			return "", "", fmt.Errorf("failed to stat user VFS: %w", err)
 		}
 	}
 
 	bd, _ := getBlockDevice(userVFS)
-	if bd != "" {
-		return bd, nil
+	if bd == "" {
+		cm.log.WithFields(fields).Info("Mounting user VFS")
+		if err := exec.Command("bash", "-c", fmt.Sprintf("NEXT=\"$(losetup -f)\" && losetup $NEXT \"%s\" && echo $NEXT", userVFS)).Run(); err != nil {
+			return "", "", fmt.Errorf("failed to mount user VFS: %w", err)
+		}
+		cm.log.WithFields(fields).Info("Mounted user VFS")
 	}
 
-	cm.log.WithFields(fields).Info("Mounting user VFS")
-	if err := exec.Command("bash", "-c", fmt.Sprintf("NEXT=\"$(losetup -f)\" && losetup $NEXT \"%s\" && echo $NEXT", userVFS)).Run(); err != nil {
-		return "", fmt.Errorf("failed to mount user VFS: %w", err)
+	device, err := getBlockDevice(userVFS)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get block device: %w", err)
 	}
-	cm.log.WithFields(fields).Info("Mounted user VFS")
-	return getBlockDevice(userVFS)
+
+	// check if volume already exists
+	_, err = cm.client.VolumeInspect(ctx, volumeName)
+	if err == nil {
+		cm.log.WithFields(fields).Debug("Volume already exists")
+		// delete volume
+		err = cm.client.VolumeRemove(ctx, volumeName, true)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to remove existing volume: %w", err)
+		}
+		cm.log.WithFields(fields).Info("Removed existing volume")
+	}
+
+	cm.log.WithFields(fields).Debug("Creating volume")
+
+	_, err = cm.client.VolumeCreate(ctx, volume.CreateOptions{
+		Name:   volumeName,
+		Driver: "local",
+		DriverOpts: map[string]string{
+			"type":   "btrfs",
+			"device": device,
+		},
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create volume: %w", err)
+	}
+
+	cm.log.WithFields(fields).Info("Created volume")
+	return volumeName, device, nil
 }
 
 func (cm *ContainerManager) RemoveVFSMount(ctx context.Context, cfg ContainerConfig) error {
 	// Check if file exists at /vfs/cfg.User, if not copy from /vfs.img
 	userVFS := path.Join("/vfs", fmt.Sprintf("%s.img", cfg.User))
+	volumeName := fmt.Sprintf("sshcontainer-vfs-%s", cfg.User)
 
 	bd, err := getBlockDevice(userVFS)
 	if err != nil {
@@ -434,7 +472,12 @@ func (cm *ContainerManager) RemoveVFSMount(ctx context.Context, cfg ContainerCon
 		"user":        cfg.User,
 		"userVFS":     userVFS,
 		"blockdevice": bd,
+		"volumeName":  volumeName,
 	}
+
+	// ignore error explicitly - volume already deleted in removeContainer using RemoveVolumes: true
+	// here we just want to make sure it's gone
+	_ = cm.client.VolumeRemove(ctx, volumeName, true)
 
 	cm.log.WithFields(fields).Debug("Try VFS cleanups")
 	if err := exec.Command("losetup", "-d", bd).Run(); err != nil {

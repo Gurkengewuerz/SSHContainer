@@ -9,6 +9,7 @@ func main() {
 	log := logrus.New()
 
 	log.SetFormatter(&logrus.TextFormatter{
+		ForceColors:   true,
 		DisableColors: false,
 		FullTimestamp: true,
 	})

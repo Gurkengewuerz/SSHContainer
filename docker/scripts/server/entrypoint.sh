@@ -60,7 +60,7 @@ fi
 log INFO "Formatting filesystem"
 
 # Format the filesystem
-if ! mkfs.ext4 -F -q "/vfs.img" 2>/dev/null; then
+if ! mkfs.btrfs -f -q "/vfs.img" 2>/dev/null; then
     log ERROR "Failed to format VFS template"
     exit 1
 fi

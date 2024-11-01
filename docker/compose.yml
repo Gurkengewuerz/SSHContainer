@@ -23,6 +23,7 @@ services:
       # Must match to the docker image
       - CONTAINER_CMD=${CONTAINER_CMD:-/bin/zsh}
       - CONTAINER_USER=${CONTAINER_USER:-user}
+      - CONTAINER_VFS_MOUNT=${CONTAINER_VFS_MOUNT:-/workspace}
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./data/server:/app"

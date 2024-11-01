@@ -19,7 +19,6 @@ RUN apt-get update && apt-get install -y \
     libcurl4-openssl-dev \
     libssl-dev \
     libxml2-dev \
-    mime-support \
     zsh \
     locales && \
     rm -rf /var/lib/apt/lists/*
@@ -68,7 +67,7 @@ RUN curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linu
     ln -s /opt/nvim-linux64/bin/nvim /usr/local/bin/nvim && \
     rm nvim-linux64.tar.gz
 
-RUN pip install neovim ruff-lsp
+RUN pip --no-cache-dir install neovim ruff-lsp numpy pandas matplotlib scipy sympy
 
 COPY scripts/shell/entrypoint.sh /entrypoint.sh
 RUN chmod 755 /entrypoint.sh
