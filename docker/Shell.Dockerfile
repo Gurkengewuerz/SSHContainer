@@ -69,8 +69,8 @@ RUN curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linu
 
 RUN pip --no-cache-dir install neovim ruff-lsp numpy pandas matplotlib scipy sympy
 
-COPY scripts/shell/entrypoint.sh /entrypoint.sh
-RUN chmod 755 /entrypoint.sh
+COPY --chmod=755 scripts/shell/entrypoint.sh /entrypoint.sh
+COPY --chmod=755 scripts/shell/wait-shell.sh /wait-shell.sh
 
 COPY --chmod=750 templates/ /templates
 

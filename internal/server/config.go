@@ -12,6 +12,7 @@ type Config struct {
 	SSHPort    string `envconfig:"SSH_PORT" default:"2222"`
 	SSHHostKey string `envconfig:"SSH_HOST_KEY" default:"/app/ssh_host_key"`
 	LogLevel   int    `envconfig:"LOG_LEVEL" default:"4"`
+	Quota      string `envconfig:"QUOTA" default:"1G"`
 
 	// OAuth Configuration
 	OAuthEndpoint string `envconfig:"OAUTH_ENDPOINT" default:"http://proxy:3000"`
@@ -37,6 +38,7 @@ type Config struct {
 	// Parsed values
 	memoryLimitBytes int64
 	cpuLimitNano     int64
+	quotaBytes       int64
 }
 
 func LoadConfig() (*Config, error) {
@@ -44,6 +46,12 @@ func LoadConfig() (*Config, error) {
 	if err := envconfig.Process("", &config); err != nil {
 		return nil, fmt.Errorf("failed to process config: %w", err)
 	}
+
+	size, err := ParseSize(config.Quota)
+	if err != nil {
+		return nil, fmt.Errorf("invalid quota: %w", err)
+	}
+	config.quotaBytes = int64(size)
 
 	// Parse memory limit
 	memLimit, err := parseMemoryString(config.MemoryLimit)

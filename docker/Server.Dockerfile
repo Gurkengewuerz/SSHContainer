@@ -24,7 +24,8 @@ RUN set -x && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -
     btrfs-progs && \
     rm -rf /var/lib/apt/lists/*
 
-ENV QUOTA=1GB
+ENV PARTITION_SIZE=20G
+ENV QUOTA=1G
 
 COPY --chmod=750 docker/scripts/server/entrypoint.sh /entrypoint.sh
 RUN mkdir -p /vfs && chmod 650 /vfs

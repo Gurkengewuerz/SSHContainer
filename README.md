@@ -26,7 +26,8 @@ authenticates users via OAuth2 and creates dedicated containers with customizabl
 
 ### BTRFS Setup for WSL
 
-If you're running in a WSL environment, you'll need to set up BTRFS support. Execute these commands in your WSL Docker Desktop distribution:
+If you're running in a WSL environment, you'll need to set up BTRFS support. Execute these commands in your WSL Docker
+Desktop distribution:
 
 ```bash
 wsl -d docker-desktop
@@ -79,7 +80,8 @@ The system can be configured through environment variables:
 | `SSH_PORT`               | SSH server port                  | 2222              |
 | `SSH_HOST_KEY`           | Path to SSH host key             | /app/ssh_host_key |
 | `LOG_LEVEL`              | Log level from 0-6. 4 being Info | `4`               |
-| `QUOTA`                  | Disk quota for user storage      | 1GB               |
+| `PARTITION_SIZE`         | BTRFS partition size             | 20G               |
+| `QUOTA`                  | Disk quota for user storage      | 1G                |
 | `OAUTH_ENDPOINT`         | OAuth2 endpoint URL              | http://proxy:3000 |
 | `CLIENT_ID`              | OAuth2 client ID                 | (required)        |
 | `CLIENT_SECRET`          | OAuth2 client secret             | (required)        |

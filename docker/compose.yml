@@ -15,13 +15,14 @@ services:
       - CLIENT_SECRET=$OAUTH2_CLIENT_SECRET
       - DOCKER_CAP_ADD=${DOCKER_CAP_ADD:-NET_ADMIN,NET_RAW}
       - DOCKER_IMAGE=${DOCKER_IMAGE:-ghcr.io/gurkengewuerz/sshcontainer-shell:main}
+      - PARTITION_SIZE=${PARTITION_SIZE:-10GB}
       - QUOTA=${QUOTA:-1GB}
       - DOCKER_MEMORY_LIMIT=${DOCKER_MEMORY_LIMIT:-512M}
       - DOCKER_CPU_LIMIT=${DOCKER_CPU_LIMIT:-1.0}
       - DOCKER_READ_ONLY=${DOCKER_READ_ONLY:-false}
       - LOG_LEVEL=${LOG_LEVEL:-6}
       # Must match to the docker image
-      - CONTAINER_CMD=${CONTAINER_CMD:-/bin/zsh}
+      - CONTAINER_CMD=${CONTAINER_CMD:-/wait-shell.sh,/bin/zsh}
       - CONTAINER_USER=${CONTAINER_USER:-user}
       - CONTAINER_VFS_MOUNT=${CONTAINER_VFS_MOUNT:-/workspace}
     volumes:
