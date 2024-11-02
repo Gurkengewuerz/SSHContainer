@@ -49,8 +49,9 @@ func (s *Server) authenticateUser(ctx ssh.Context, password string) bool {
 	resp, err := http.PostForm(s.config.OAuthEndpoint, data)
 	if err != nil {
 		s.log.WithFields(logrus.Fields{
-			"user":  ctx.User(),
-			"error": err,
+			"user":   ctx.User(),
+			"remote": ctx.RemoteAddr(),
+			"error":  err,
 		}).Error("Authentication request failed")
 		return false
 	}
@@ -59,6 +60,7 @@ func (s *Server) authenticateUser(ctx ssh.Context, password string) bool {
 	success := resp.StatusCode == http.StatusOK
 	s.log.WithFields(logrus.Fields{
 		"user":    ctx.User(),
+		"remote":  ctx.RemoteAddr(),
 		"success": success,
 	}).Info("Authentication attempt")
 
@@ -72,6 +74,7 @@ func (s *Server) handleSession(sess ssh.Session) {
 
 	log := s.log.WithFields(logrus.Fields{
 		"user":      username,
+		"remote":    sess.RemoteAddr(),
 		"sessionID": sessionID,
 	})
 
