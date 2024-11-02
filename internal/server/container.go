@@ -317,6 +317,7 @@ func (cm *ContainerManager) ExecInContainer(ctx context.Context, containerID str
 		AttachStdout: true,
 		Env:          env,
 		Cmd:          cmd,
+		WorkingDir:   cm.config.ContainerVFSMountPath,
 	}
 
 	execCreateResp, err := cm.client.ContainerExecCreate(ctx, containerID, execConfig)
