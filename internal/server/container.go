@@ -174,7 +174,9 @@ func (cm *ContainerManager) GetOrCreateContainer(ctx context.Context, username s
 }
 
 func (cm *ContainerManager) createContainer(ctx context.Context, cfg ContainerConfig) (string, error) {
-	env := cfg.Env
+	// env is not set for all session
+	// env is set via container exec/attach
+	env := make([]string, 0)
 	devices := cm.config.DockerDevices
 	capAdd := cm.config.DockerCapAdd
 	secOpt := cm.config.DockerSecurityOpt
