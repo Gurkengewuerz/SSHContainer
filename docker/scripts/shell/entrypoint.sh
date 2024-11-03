@@ -3,6 +3,7 @@ shopt -s dotglob
 
 cd "$CREATING_WORKSPACE"
 chmod 777 "$CREATING_WORKSPACE"
+chmod 1777 /tmp
 
 # Allow all traffic to Docker's DNS (127.0.0.11) regardless of port
 iptables -A OUTPUT -m owner --uid-owner $CREATING_USER -d 127.0.0.11 -j ACCEPT
