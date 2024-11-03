@@ -20,15 +20,16 @@ type Config struct {
 	ClientSecret  string `envconfig:"CLIENT_SECRET" required:"true"`
 
 	// Docker Configuration
-	DockerImage       string   `envconfig:"DOCKER_IMAGE" default:"ubuntu:latest"`
-	MemoryLimit       string   `envconfig:"DOKCER_MEMORY_LIMIT" default:"512M"`
-	CPULimit          float64  `envconfig:"DOCKER_CPU_LIMIT" default:"1.0"`
-	NetworkMode       string   `envconfig:"DOCKER_NETWORK_MODE" default:"bridge"`
-	Networks          []string `envconfig:"DOCKER_NETWORKS" default:""`
-	DockerDevices     []string `envconfig:"DOCKER_DEVICES" default:""`
-	DockerCapAdd      []string `envconfig:"DOCKER_CAP_ADD" default:""`
-	DockerSecurityOpt []string `envconfig:"DOCKER_SEC_OPT" default:""`
-	DockerReadOnly    bool     `envconfig:"DOCKER_READ_ONLY" default:"false"`
+	DockerImage           string   `envconfig:"DOCKER_IMAGE" default:"ubuntu:latest"`
+	MemoryLimit           string   `envconfig:"DOKCER_MEMORY_LIMIT" default:"512M"`
+	CPULimit              float64  `envconfig:"DOCKER_CPU_LIMIT" default:"1.0"`
+	NetworkMode           string   `envconfig:"DOCKER_NETWORK_MODE" default:"bridge"`
+	Networks              []string `envconfig:"DOCKER_NETWORKS" default:""`
+	DockerDevices         []string `envconfig:"DOCKER_DEVICES" default:""`
+	DockerCapAdd          []string `envconfig:"DOCKER_CAP_ADD" default:""`
+	DockerSecurityOpt     []string `envconfig:"DOCKER_SEC_OPT" default:""`
+	DockerReadOnly        bool     `envconfig:"DOCKER_READ_ONLY" default:"false"`
+	DockerImagePullPolicy string   `envconfig:"DOCKER_IMAGE_PULL_POLICY" default:"unless-present"`
 
 	ContainerCMD          []string `envconfig:"CONTAINER_CMD" default:"/bin/bash"`
 	ContainerUser         string   `envconfig:"CONTAINER_USER" default:""`

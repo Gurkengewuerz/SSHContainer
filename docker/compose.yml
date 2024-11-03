@@ -20,6 +20,7 @@ services:
       - DOCKER_MEMORY_LIMIT=${DOCKER_MEMORY_LIMIT:-512M}
       - DOCKER_CPU_LIMIT=${DOCKER_CPU_LIMIT:-1.0}
       - DOCKER_READ_ONLY=${DOCKER_READ_ONLY:-false}
+      - DOCKER_IMAGE_PULL_POLICY=${DOCKER_IMAGE_PULL_POLICY:-unless-present}
       - LOG_LEVEL=${LOG_LEVEL:-6}
       # Must match to the docker image
       - CONTAINER_CMD=${CONTAINER_CMD:-/wait-shell.sh,/bin/zsh}
