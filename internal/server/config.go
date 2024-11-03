@@ -34,6 +34,7 @@ type Config struct {
 	ContainerUser         string   `envconfig:"CONTAINER_USER" default:""`
 	ContainerIdleTimeout  int      `envconfig:"CONTAINER_IDLE_TIMEOUT" default:"60"` // 1 minute default
 	ContainerVFSMountPath string   `envconfig:"CONTAINER_VFS_MOUNT" default:"/workspace"`
+	ContainerExtraMounts  []string `envconfig:"CONTAINER_MOUNTS" default:""`
 
 	// Parsed values
 	memoryLimitBytes int64

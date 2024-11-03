@@ -233,6 +233,19 @@ func (cm *ContainerManager) createContainer(ctx context.Context, cfg ContainerCo
 		},
 	})
 
+	for _, extraMount := range cm.config.ContainerExtraMounts {
+		parts := strings.Split(extraMount, ":")
+		if len(parts) != 2 && len(parts) != 3 {
+			return "", fmt.Errorf("invalid extra mount: %s", extraMount)
+		}
+		mounts = append(mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   parts[0],
+			Target:   parts[1],
+			ReadOnly: len(parts) == 3 && parts[2] == "ro",
+		})
+	}
+
 	hostConfig := &container.HostConfig{
 		NetworkMode:    container.NetworkMode(cm.config.NetworkMode),
 		CapAdd:         capAdd,
